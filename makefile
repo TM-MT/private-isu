@@ -47,6 +47,7 @@ bench:
 	cd benchmarker && docker run \
 		--rm \
 		--network host \
+		--add-host=host.docker.internal:host-gateway \
 		--name private-isu-benchmarker \
 		-i private-isu-benchmarker \
 		/opt/go/bin/benchmarker \
