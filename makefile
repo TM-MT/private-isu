@@ -133,7 +133,7 @@ reload-nginx:
 # データベースの中身を確認する
 .PHONY: exec-mysql
 exec-mysql:
-	cd webapp && docker-compose exec mysql bash -c 'mysql -u root -proot isuconp'
+	cd webapp && docker-compose exec -- mysql mysql -u root -proot isuconp
 
 .PHONY: help
 help:
