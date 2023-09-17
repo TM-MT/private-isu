@@ -283,7 +283,13 @@ def get_index():
 
     cursor = db().cursor()
     cursor.execute(
-        "SELECT `id`, `user_id`, `body`, `created_at`, `mime` FROM `posts` ORDER BY `created_at` DESC"
+        """
+        SELECT p.`id`, p.`user_id`, p.`body`, p.`created_at`, p.`mime` 
+        FROM `posts` p LEFT JOIN `users` u ON p.user_id=u.id 
+        WHERE u.del_flg=0 
+        ORDER BY p.`created_at` DESC 
+        LIMIT %s
+        """, (POSTS_PER_PAGE, )
     )
     posts = make_posts(cursor.fetchall())
 
