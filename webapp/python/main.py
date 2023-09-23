@@ -3,7 +3,6 @@ import os
 import pathlib
 import re
 import subprocess
-import tempfile
 
 import cachetools
 import flask
@@ -108,7 +107,7 @@ def digest(src: str):
     )
     out = out.decode("ascii")
     # opensslのバージョンによっては (stdin)= というのがつくので取る
-    out = out[out.find("=") + 1 :]
+    out = out[out.find("=") + 1:]
     return out.strip()
 
 
@@ -156,7 +155,8 @@ def make_posts(results, all_comments=False):
         comments.reverse()
         post["comments"] = comments
 
-        cursor.execute("SELECT * FROM `users` WHERE `id` = %s", (post["user_id"],))
+        cursor.execute(
+            "SELECT * FROM `users` WHERE `id` = %s", (post["user_id"],))
         post["user"] = cursor.fetchone()
 
         if not post["user"]["del_flg"]:
@@ -175,16 +175,27 @@ app = flask.Flask(__name__, static_folder=str(static_path), static_url_path="")
 app.session_interface = pymc_session.SessionInterface(memcache())
 
 
+def as_ext(mime):
+    """
+    return the corresponding extension from mime
+
+    :param      mime:  The mime 'image/{jpeg,png,gif}'
+    :type       mime:  { string }
+    """
+    c = mime[6]
+    if c == 'j':
+        return 'jpg'
+    elif c == 'p':
+        return 'png'
+    elif c == 'g':
+        return 'gif'
+    return ''
+    # return 'jpg' if mime == 'image/jpeg' else mime.removeprefix('image/')
+
+
 @app.template_global()
 def image_url(post):
-    ext = ""
-    mime = post["mime"]
-    if mime == "image/jpeg":
-        ext = ".jpg"
-    elif mime == "image/png":
-        ext = ".png"
-    elif mime == "image/gif":
-        ext = ".gif"
+    ext = "." + as_ext(post["mime"])
 
     return "/image/%s%s" % (post["id"], ext)
 
@@ -285,10 +296,10 @@ def get_index():
     cursor = db().cursor()
     cursor.execute(
         """
-        SELECT p.`id`, p.`user_id`, p.`body`, p.`created_at`, p.`mime` 
-        FROM `posts` p LEFT JOIN `users` u ON p.user_id=u.id 
-        WHERE u.del_flg=0 
-        ORDER BY p.`created_at` DESC 
+        SELECT p.`id`,p.`user_id`,p.`body`,p.`mime`,p.`created_at`
+        FROM `posts` p LEFT JOIN `users` u ON p.user_id=u.id
+        WHERE u.del_flg=0
+        ORDER BY p.`created_at` DESC
         LIMIT %s
         """, (POSTS_PER_PAGE, )
     )
@@ -310,27 +321,28 @@ def get_user_list(account_name):
         flask.abort(404)  # raises exception
 
     cursor.execute(
-        "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = %s ORDER BY `created_at` DESC",
+        """
+        SELECT `id`, `user_id`, `body`, `mime`, `created_at`
+        FROM `posts`
+        WHERE `user_id` = %s
+        ORDER BY `created_at` DESC
+        """,
         (user["id"],),
     )
     posts = make_posts(cursor.fetchall())
 
     cursor.execute(
-        "SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = %s", (user["id"],)
+        "SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = %s",
+        (user["id"],)
     )
     comment_count = cursor.fetchone()["count"]
 
-    cursor.execute("SELECT `id` FROM `posts` WHERE `user_id` = %s", (user["id"],))
+    cursor.execute(
+        "SELECT `id` FROM `posts` WHERE `user_id` = %s",
+        (user["id"],)
+    )
     post_ids = [p["id"] for p in cursor]
     post_count = len(post_ids)
-
-    commented_count = 0
-    if post_count > 0:
-        cursor.execute(
-            "SELECT COUNT(*) AS count FROM `comments` WHERE `post_id` IN %s",
-            (post_ids,),
-        )
-        commented_count = cursor.fetchone()["count"]
 
     me = get_session_user()
 
@@ -360,12 +372,21 @@ def get_posts():
     if max_created_at:
         max_created_at = _parse_iso8601(max_created_at)
         cursor.execute(
-            "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `created_at` <= %s ORDER BY `created_at` DESC",
+            """
+            SELECT `id`, `user_id`, `body`, `mime`, `created_at`
+            FROM `posts`
+            WHERE `created_at` <= %s
+            ORDER BY `created_at` DESC
+            """,
             (max_created_at,),
         )
     else:
         cursor.execute(
-            "SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE ORDER BY `created_at` DESC"
+            """
+            SELECT `id`, `user_id`, `body`, `mime`, `created_at`
+            FROM `posts`
+            ORDER BY `created_at` DESC
+            """
         )
     results = cursor.fetchall()
     posts = make_posts(results)
@@ -405,48 +426,30 @@ def post_index():
         flask.flash("投稿できる画像形式はjpgとpngとgifだけです")
         return flask.redirect("/")
 
-    with tempfile.TemporaryFile() as tempf:
-        file.save(tempf)
-        tempf.flush()
-
-        if tempf.tell() > UPLOAD_LIMIT:
-            flask.flash("ファイルサイズが大きすぎます")
-            return flask.redirect("/")
-
-        tempf.seek(0)
-        imgdata = tempf.read()
-
-    query = "INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (%s,%s,%s,%s)"
+    query = "INSERT INTO `posts` (`user_id`, `mime`, `body`) VALUES (%s,%s,%s)"
     cursor = db().cursor()
-    cursor.execute(query, (me["id"], mime, imgdata, flask.request.form.get("body")))
+    cursor.execute(query, (me["id"], mime, flask.request.form.get("body")))
     pid = cursor.lastrowid
+
+    fname = '/home/public/image/' + str(pid) + '.' + as_ext(mime)
+    with open(fname, 'wb') as dst:
+        file.save(dst)
+        dst.flush()
+
+        is_exceed_limit = dst.tell() > UPLOAD_LIMIT
+
+    if is_exceed_limit:
+        flask.flash("ファイルサイズが大きすぎます")
+        try:
+            os.remove(fname)
+        except Exception:
+            # ignore all error
+            pass
+        # remove the post
+        cursor.execute("DELETE FROM posts WHERE id=%s", pid)
+        return flask.redirect("/")
+
     return flask.redirect("/posts/%d" % pid)
-
-
-@app.route("/image/<id>.<ext>")
-def get_image(id, ext):
-    if not id:
-        return ""
-    id = int(id)
-    if id == 0:
-        return ""
-
-    cursor = db().cursor()
-    cursor.execute("SELECT * FROM `posts` WHERE `id` = %s", (id,))
-    post = cursor.fetchone()
-
-    mime = post["mime"]
-    if (
-        ext == "jpg"
-        and mime == "image/jpeg"
-        or ext == "png"
-        and mime == "image/png"
-        or ext == "gif"
-        and mime == "image/gif"
-    ):
-        return flask.Response(post["imgdata"], mimetype=mime)
-
-    flask.abort(404)
 
 
 @app.route("/comment", methods=["POST"])
