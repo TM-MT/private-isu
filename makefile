@@ -15,7 +15,7 @@ down:
 # docker-composeでコンテナを停止し、まっさらな状態にする
 .PHONY: down-all
 down-all:
-	cd webapp && docker-compose down --rmi all --volumes --remove-orphans
+	cd webapp && docker-compose down --volumes --remove-orphans
 
 # docker-composeでコンテナを再起動する
 .PHONY: restart
